@@ -13,6 +13,12 @@ import openpyxl
 #Import needed support modules
 import PIL.ImageGrab
 
+#Controllers
+def build(*args, **kwargs):
+	"""Starts the GUI making process."""
+
+	return Excel(*args, **kwargs)
+
 class Utilities():
 	def __init__(self):
 		"""Functions to make the Excel module easier.
