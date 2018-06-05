@@ -4,6 +4,7 @@ __version__ = "2.5.0"
 #Import standard elements
 import os
 import sys
+import copy
 import warnings
 import subprocess
 from ctypes import windll as ctypesWindll #Used to determine screen dpi
@@ -199,7 +200,7 @@ class Utilities():
 			bonusColumn = ""
 			while True:
 				count += 1
-				#Does the askii letter go past Z? If so, create addition letter
+				#Does the ascii letter go past Z? If so, create addition letter
 				if (openpyxl.utils.get_column_letter(count).isupper()):
 					break
 				else:
@@ -631,7 +632,7 @@ class Excel(Utilities):
 					bonusColumn = ""
 					while True:
 						count += 1
-						#Does the askii letter go past Z? If so, create addition letter
+						#Does the ascii letter go past Z? If so, create addition letter
 						if (openpyxl.utils.get_column_letter(count).isupper()):
 							break
 						else:
@@ -642,7 +643,7 @@ class Excel(Utilities):
 					column = bonusColumn + openpyxl.utils.get_column_letter(column)
 
 				#Write Value
-				self.thing[column + str(row)] = value
+				self.thing[column + str(row)] = ascii(value) #Make sure input is a valid ascii
 
 			def appendRow(self, contents = None):
 				"""Appends a row to the end of the file.
@@ -737,7 +738,7 @@ class Excel(Utilities):
 				image = openpyxl.drawing.image.Image(imagePath, size = (xSize, ySize), nochangeaspect = keepAspectRatio)
 				self.thing.add_image(image, column + str(row))
 
-			def setCellStyle(self, row, column, font = None, bold = None, size = None):
+			def setCellStyle(self, row, column, font = None, bold = None, italic = None, size = None):
 				"""Changes the style of the text in a cell.
 				The top-left corner is row (1, 1) not (0, 0).
 
@@ -815,25 +816,19 @@ class Excel(Utilities):
 						font = openpyxl.styles.Font(style = "Normal")
 
 				else:
-					font = cell.font.copy()
+					font = copy.copy(cell.font)
 
 				#Determine text boldness
 				if (bold != None):
-					if (bold):
-						font = font.copy(bold = True)
-					else:
-						font = font.copy(bold = False)
+					font.bold = bold
 
 				#Determine if the text should be italisized, not, or stay whatever it is
-				if (bold != None):
-					if (bold):
-						font = font.copy(italic = True)
-					else:
-						font = font.copy(italic = False)
+				if (italic != None):
+					font.italic = italic
 
 				#Determine if the text size should be changed
 				if (size != None):
-					font = font.copy(size = int(size))
+					font.size = int(size)
 
 				#Apply the style to the cell
 				cell.font = font
