@@ -21,6 +21,10 @@ def build(*args, **kwargs):
 
 	return Excel(*args, **kwargs)
 
+#Required Modules
+##py -m pip install
+	# openpyxl
+
 #Iterators
 class Iterator(object):
 	"""Used by handle objects to iterate over their nested objects."""
