@@ -460,6 +460,9 @@ class Excel(Utilities):
 
 			#Load the workbook into memory
 			self.thing = openpyxl.load_workbook(os.path.join(filePath, fileName))
+			
+			for i, sheet in enumerate(self.thing.worksheets):
+				self[i] = self.Sheet(self, i, thing = sheet)
 			self.select(0)
 
 		def run(self, filePath = "./"):
@@ -480,7 +483,7 @@ class Excel(Utilities):
 				subprocess.call(['open', fileName])
 			
 		class Sheet(Utilities):
-			def __init__(self, parent, label, position = None):
+			def __init__(self, parent, label, position = None, thing = None):
 				"""A handle for an excel sheet."""
 				super(Excel.Book.Sheet, self).__init__()
 				
@@ -490,15 +493,18 @@ class Excel(Utilities):
 					label = self.getUnique("Sheet_{}")
 				self.label = label
 
-				if ((len(self.parent) == 0) and (self.parent.firstSheet == None)):
-					self.thing = self.parent.thing.active
+				if (thing is not None):
+					self.thing = thing
 				else:
-					if (position != None):
-						self.thing = self.parent.thing.create_sheet(position)
+					if ((len(self.parent) == 0) and (self.parent.firstSheet == None)):
+						self.thing = self.parent.thing.active
 					else:
-						self.thing = self.parent.thing.create_sheet()
+						if (position != None):
+							self.thing = self.parent.thing.create_sheet(position)
+						else:
+							self.thing = self.parent.thing.create_sheet()
 
-				self.setTitle()
+					self.setTitle()
 
 			def setTitle(self, title = None):
 				"""Changes the title of the sheet.
