@@ -118,7 +118,7 @@ class Utilities(MyUtilities.common.Container, MyUtilities.common.CommonFunctions
 		"""
 
 		def setter(self, value):
-			self.thing.title = self.ensure_default(value, default = self.label)
+			self.thing.title = f"{self.ensure_default(value, default = self.label)}"
 
 		def getter(self):
 			return self.thing.title
@@ -368,7 +368,7 @@ class Excel(Utilities):
 			self.thing = openpyxl.load_workbook(self._getFilePath(filePath = filePath))
 			self._mapWorksheets(readImages = readImages)
 
-		def _mapWorksheets(readImages = False):
+		def _mapWorksheets(self, readImages = False):
 			if (not self.thing.worksheets):
 				return
 
