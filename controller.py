@@ -49,6 +49,13 @@ class Utilities(MyUtilities.common.Container, MyUtilities.common.CommonFunctions
 	def __getitem__(self, key):
 		return self.getChild(label = key)
 
+	def __str__(self):
+		"""Gives diagnostic information on this when it is printed out."""
+
+		output = MyUtilities.common.Container.__str__(self)
+		output += f"-- Title: {self.title}\n"
+		return output
+
 	def getChild(self, label = None, *args, **kwargs):
 		"""Returns an child.
 
@@ -77,11 +84,18 @@ class Utilities(MyUtilities.common.Container, MyUtilities.common.CommonFunctions
 			self.select(child)
 		return child
 
-	def select(self, label):
+	def select(self, label, thing = None):
 		"""Selects the given child as the current one.
 
 		Example Input: select("lorem")
 		"""
+
+		if (thing is not None):
+			for item in self:
+				if (item.thing == thing):
+					self.current = item
+					return
+			raise NotImplementedError()
 
 		if (self.child_class is None):
 			raise NotImplementedError()
@@ -194,8 +208,10 @@ class Excel(Utilities):
 		return book
 
 	class Book(Utilities):
-		def __init__(self, parent, label, *, firstSheet = None, title = None, filePath = None):
+		def __init__(self, parent, label, *, firstSheet = None, title = None, filePath = None, readOnly = False, writeOnly = False):
 			"""A handle for the workbook.
+			See: https://openpyxl.readthedocs.io/en/latest/optimized.html
+			See: https://stackoverflow.com/questions/21875249/memory-error-using-openpyxl-and-large-data-excels/21875423#21875423
 
 			firstSheet (str) - The label for the first sheet in the workbook
 				- If None: The workbook will start off without any sheets
@@ -212,10 +228,11 @@ class Excel(Utilities):
 			self.parent = parent
 			self.filePath = filePath
 			self.firstSheet = firstSheet
+			self.readOnly = readOnly
 			
 			self.imageCatalogue = collections.defaultdict(dict) #Used to catalogue all of the images in the document. {sheet title: {top-left corner cell (row, column): image as a PIL image}}
 
-			self.thing = openpyxl.Workbook()
+			self.thing = openpyxl.Workbook(write_only = writeOnly)
 			self.title = title
 
 			if (firstSheet != None):
@@ -235,7 +252,7 @@ class Excel(Utilities):
 			def getter(self):
 				return self._filePath
 
-		def add(self, label = None, *, position = None, tabColor = None, changeToSheet = True):
+		def add(self, label = None, *, changeToSheet = True, **kwargs):
 			"""Adds a new sheet to the excel file.
 
 			position (int)       - Where to insert the sheet at
@@ -250,7 +267,7 @@ class Excel(Utilities):
 			Example Input: add("Sheet1", position = 0, tabColor = "1072BA")
 			"""
 
-			sheet = self.getChild(label = label, position = position, tabColor = tabColor)
+			sheet = self.getChild(label = label, **kwargs)
 			if (changeToSheet):
 				self.select(label)
 
@@ -365,7 +382,7 @@ class Excel(Utilities):
 			Example Input: load()
 			"""
 
-			self.thing = openpyxl.load_workbook(self._getFilePath(filePath = filePath))
+			self.thing = openpyxl.load_workbook(self._getFilePath(filePath = filePath), read_only = self.readOnly)
 			self._mapWorksheets(readImages = readImages)
 
 		def _mapWorksheets(self, readImages = False):
@@ -374,7 +391,7 @@ class Excel(Utilities):
 
 			for i, sheet in enumerate(self.thing.worksheets):
 				self[i] = self.new(label = i, thing = sheet)
-			self.select(0)
+			self.select(None, thing = self.thing.active)
 
 		def run(self, filePath = None):
 			"""Opens the excel file for the user.
@@ -404,15 +421,26 @@ class Excel(Utilities):
 					if ((len(self.parent) is 0) and (self.parent.firstSheet is None)):
 						self.thing = self.parent.thing.active
 					else:
+						self.thing = None
+					
+					if (self.thing is None):
 						if (position is not None):
 							self.thing = self.parent.thing.create_sheet(position)
 						else:
 							self.thing = self.parent.thing.create_sheet()
 
-				self.title = title
-				self.tabColor = tabColor
+					self.title = title
+					self.tabColor = tabColor
 
-			def remove():
+			def getRowCount(self):
+				#https://stackoverflow.com/questions/35408339/is-there-any-method-to-get-the-number-of-rows-and-columns-present-in-xlsx-sheet/35408471#35408471
+				return self.thing.max_row
+
+			def getColumnCount(self):
+				#https://stackoverflow.com/questions/35408339/is-there-any-method-to-get-the-number-of-rows-and-columns-present-in-xlsx-sheet/35408471#35408471
+				return self.thing.max_column
+
+			def remove(self):
 				"""Removes this sheet from the book.
 
 				Example Input: remove("sheet1")
@@ -503,7 +531,8 @@ class Excel(Utilities):
 					cell = self.getCell(row = row, column = column)
 
 				#Write Value
-				cell.value = ascii(value) #Make sure input is a valid ascii
+				for _cell in self.ensure_container(cell):
+					_cell.value = f"{value}" #Make sure input is a valid ascii
 
 			def appendRow(self, contents = None):
 				"""Appends a row to the end of the file.
@@ -606,6 +635,7 @@ class Excel(Utilities):
 				"bad": {"style": "Bad"}, 
 				"neutral": {"style": "Neutral"}, 
 			}, caseSensitive = False, typeSensitive = False)
+			
 			def setCellStyle(self, row, column, *, font = None, bold = None, italic = None, size = None):
 				"""Changes the style of the text in a cell.
 				The top-left corner is row (1, 1) not (0, 0).
