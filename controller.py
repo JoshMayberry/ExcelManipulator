@@ -38,6 +38,8 @@ class Utilities(MyUtilities.common.Container, MyUtilities.common.CommonFunctions
 		MyUtilities.common.EnsureFunctions.__init__(self)
 
 		#Internal Variables
+		self.label = None
+		self.thing = None
 		self.child_class = child_class
 		if (child_class is not None):
 			self.current = None
@@ -53,7 +55,8 @@ class Utilities(MyUtilities.common.Container, MyUtilities.common.CommonFunctions
 		"""Gives diagnostic information on this when it is printed out."""
 
 		output = MyUtilities.common.Container.__str__(self)
-		output += f"-- Title: {self.title}\n"
+		if (self.thing is not None):
+			output += f"-- Title: {self.title}\n"
 		return output
 
 	def getChild(self, label = None, *args, **kwargs):
@@ -208,7 +211,7 @@ class Excel(Utilities):
 		return book
 
 	class Book(Utilities):
-		def __init__(self, parent, label, *, firstSheet = None, title = None, filePath = None, readOnly = False, writeOnly = False):
+		def __init__(self, parent, label, *, firstSheet = None, title = None, filePath = None, readOnly = False, writeOnly = False, computeFormulas = True):
 			"""A handle for the workbook.
 			See: https://openpyxl.readthedocs.io/en/latest/optimized.html
 			See: https://stackoverflow.com/questions/21875249/memory-error-using-openpyxl-and-large-data-excels/21875423#21875423
@@ -226,9 +229,10 @@ class Excel(Utilities):
 			#Internal Variables
 			self.label = label
 			self.parent = parent
+			self.readOnly = readOnly
 			self.filePath = filePath
 			self.firstSheet = firstSheet
-			self.readOnly = readOnly
+			self.computeFormulas = computeFormulas
 			
 			self.imageCatalogue = collections.defaultdict(dict) #Used to catalogue all of the images in the document. {sheet title: {top-left corner cell (row, column): image as a PIL image}}
 
@@ -244,10 +248,18 @@ class Excel(Utilities):
 		# 		self.save()
 		# 	return super().__exit__(exc_type, exc_value, traceback)
 
+		def __str__(self):
+			"""Gives diagnostic information on this when it is printed out."""
+
+			output = Utilities.__str__(self)
+			output += f"-- Sheets: {len(self)}\n"
+			output += f"-- Sheet Labels: { {sheet.label: sheet.getSheetName() for sheet in self} }\n"
+			return output
+
 		@MyUtilities.common.makeProperty(default = None)
 		class filePath():
 			def setter(self, value):
-				self._filePath = self.ensure_filePath(self.ensure_default(value, default = self.label), ending = (".xls", ".xlsx"), checkExists = False)
+				self._filePath = self.ensure_filePath(self.ensure_default(value, default = self.label), ending = (".xls", ".xlsm", ".xlsx"), checkExists = False)
 
 			def getter(self):
 				return self._filePath
@@ -342,13 +354,13 @@ class Excel(Utilities):
 			if (filePath is None):
 				_filePath = self.filePath
 			else:
-				_filePath = self.ensure_filePath(filePath, ending = (".xls", ".xlsx"), checkExists = False)
+				_filePath = self.ensure_filePath(filePath, ending = (".xls", ".xlsm", ".xlsx"), checkExists = False)
 
 			if (not temporary):
 				return _filePath
 			return "{}_temp{}".format(*os.path.splitext(_filePath))
 
-		def save(self, filePath = None, overlayOk = True, temporary = False, saveImages = True):
+		def save(self, filePath = None, overlayOk = True, temporary = False, saveImages = True, **kwargs):
 			"""Saves the workbook to a specified location.
 
 			filePath (str)   - Where the file is located
@@ -363,13 +375,67 @@ class Excel(Utilities):
 			Example Input: save()
 			"""
 
+			if ((filePath is not None) and (filePath.endswith(".csv"))):
+				return self.saveCsv(filePath = filePath, **kwargs)
+
+			_filePath = self._getFilePath(filePath = filePath, temporary = temporary)
 			try:
-				self.thing.save(self._getFilePath(filePath = filePath, temporary = temporary))
+				self.thing.save(_filePath)
 			except IOError:
 				#A book by that name is already open
 				print("ERROR: The excel file is still open. The file has still been saved. Just close the current file without saving.")
 
-		def load(self, filePath = None, readImages = False):
+		def saveCsv(self, filePath = None, rowDeliminator = None, columnDeliminator = None, sheetDeliminator = None, yieldForNone = "", skipLineCondition = None):
+			"""Saves the workbok as a csv file.
+			Use: https://www.studytonight.com/post/converting-xlsx-file-to-csv-file-using-python
+
+			filePath (str)   - Where the file is located
+			deliminator (str) - What to separate columns by
+				~ If None: Will separate columns using a comma
+			deliminator (str) - What to separate rows by
+				~ If None: Will separate rows using a new line
+			deliminator (str) - What to separate sheets by
+				~ If None: Will separate sheets using a new line
+
+			Example Input: save()
+			"""
+
+			def yieldValues(row):
+				for cell in row:
+					value = cell.value
+					if (value is None):
+						yield yieldForNone
+					else:
+						yield value
+
+			if (skipLineCondition is None):
+				def yieldRows(mySheet):
+					for row in mySheet.thing.rows:
+						yield rowDeliminator.join(yieldValues(row))
+			else:
+				def yieldRows(mySheet):
+					for row in mySheet.thing.rows:
+						if (not skipLineCondition(row)):
+							continue
+						yield rowDeliminator.join(yieldValues(row))
+
+			def yieldSheet():
+				nonlocal self
+
+				for mySheet in self:
+					yield columnDeliminator.join(yieldRows(mySheet))
+
+			############################
+
+			rowDeliminator = self.ensure_default(rowDeliminator, ",")
+			sheetDeliminator = self.ensure_default(sheetDeliminator, "\n")
+			columnDeliminator = self.ensure_default(columnDeliminator, "\n")
+
+			_filePath = self.ensure_filePath(self.ensure_default(filePath, default = self.filePath), ending = (".csv"), checkExists = False)
+			with open(_filePath, "w+") as fileHandle:
+				fileHandle.write(sheetDeliminator.join(yieldSheet()))
+
+		def load(self, filePath = None, readOnly = None, readImages = False, computeFormulas = None):
 			"""Loads a workbook from a specified location into memmory.
 
 			filePath (str) - Where the file is located
@@ -382,7 +448,8 @@ class Excel(Utilities):
 			Example Input: load()
 			"""
 
-			self.thing = openpyxl.load_workbook(self._getFilePath(filePath = filePath), read_only = self.readOnly)
+			self.thing = openpyxl.load_workbook(self._getFilePath(filePath = filePath), read_only = self.ensure_default(readOnly, default = self.readOnly), data_only = not self.ensure_default(computeFormulas, default = self.computeFormulas))
+
 			self._mapWorksheets(readImages = readImages)
 
 		def _mapWorksheets(self, readImages = False):
@@ -390,7 +457,7 @@ class Excel(Utilities):
 				return
 
 			for i, sheet in enumerate(self.thing.worksheets):
-				self[i] = self.new(label = i, thing = sheet)
+				self[i] = self.new(label = sheet.title, thing = sheet)
 			self.select(None, thing = self.thing.active)
 
 		def run(self, filePath = None):
@@ -432,6 +499,9 @@ class Excel(Utilities):
 					self.title = title
 					self.tabColor = tabColor
 
+			def getSheetName(self):
+				return self.thing.title
+
 			def getRowCount(self):
 				#https://stackoverflow.com/questions/35408339/is-there-any-method-to-get-the-number-of-rows-and-columns-present-in-xlsx-sheet/35408471#35408471
 				return self.thing.max_row
@@ -439,6 +509,18 @@ class Excel(Utilities):
 			def getColumnCount(self):
 				#https://stackoverflow.com/questions/35408339/is-there-any-method-to-get-the-number-of-rows-and-columns-present-in-xlsx-sheet/35408471#35408471
 				return self.thing.max_column
+
+			def getActiveCell(self, returnLabel = True, returnSelected = False):
+				if (not returnLabel):
+					return self.thing.cell
+
+				if (not returnSelected):
+					return self.thing.active_cell
+
+				return self.thing.selected_cell
+
+			def getSize(self):
+				return self.thing.dimensions
 
 			def remove(self):
 				"""Removes this sheet from the book.
@@ -476,7 +558,7 @@ class Excel(Utilities):
 
 				return self.thing[self.convertColumn(row = row, column = column)]
 
-			def getCellValue(self, row = None, column = None, *, cell = None):
+			def getCellValue(self, row = None, column = None, *, cell = None, strip = False):
 				"""Returns the contents of a cell.
 				The top-left corner is row (1, 1) not (0, 0).
 
@@ -490,7 +572,24 @@ class Excel(Utilities):
 
 				if (cell is None):
 					cell = self.getCell(row = row, column = column)
-				return cell.value
+
+				if ((not strip) or (cell.value is None) or (not isinstance(cell.value, str))):
+					return cell.value
+
+				value = cell.value.strip()
+				if (not value):
+					return None
+				return value
+
+			def getCellValue_quick(self, row, column):
+				"""Returns the contents of a cell.
+				Assumes inputs are all good and cell exists.
+
+				Example Input: getCellValue_quick(1, "A")
+				"""
+
+				return self.thing[f"{column}{row}"].value
+
 
 			def getCellImage(self, row, column):
 				"""Returns a PIL image object from a cell. 
@@ -513,6 +612,40 @@ class Excel(Utilities):
 
 				return catalogue[(row, column)]
 
+			def getCellMerge(self, row, column):
+				"""Returns what range this cell is merged in.
+				Returns None if this cell is not merged.
+				The top-left corner is row (1, 1) not (0, 0).
+
+				See: https://stackoverflow.com/questions/39574991/how-to-detect-merged-cells-in-excel-with-openpyxl/42823355#42823355
+
+				row (int)    - The index of the row
+				column (int) - The index of the column
+
+				Example Input: getCellMerge(1, 2)
+				"""
+
+				cell = self.getCell(row = row, column = column)
+
+				for mergedCell in self.thing.merged_cells.ranges:
+					if (cell.coordinate in mergedCell):
+						return mergedCell.bounds
+
+			def getCellComment(self, row, column):
+				"""Returns the comment attached to a cell.
+				Returns None if this cell has no comment.
+				The top-left corner is row (1, 1) not (0, 0).
+
+				row (int)    - The index of the row
+				column (int) - The index of the column
+
+				Example Input: getCellComment(1, 2)
+				"""
+
+				cell = self.getCell(row = row, column = column)
+
+				return cell.comment.content
+
 			#Setters
 			def setCell(self, row = None, column = None, value = None, *, cell = None):
 				"""Writes the value of a cell.
@@ -530,9 +663,14 @@ class Excel(Utilities):
 				if (cell is None):
 					cell = self.getCell(row = row, column = column)
 
+				if (value is None):
+					value = ""
+
 				#Write Value
 				for _cell in self.ensure_container(cell):
 					_cell.value = f"{value}" #Make sure input is a valid ascii
+
+			setCellValue = setCell
 
 			def appendRow(self, contents = None):
 				"""Appends a row to the end of the file.
@@ -846,11 +984,24 @@ class Excel(Utilities):
 				Example Input: setColumnColor("A")
 				"""
 
-				fillObject = openpyxl.styles.PatternFill(start_color=color, end_color=color, fill_type="solid")
+				fillObject = openpyxl.styles.PatternFill(start_color = color, end_color = color, fill_type = "solid")
 
 				for i, row in enumerate(self.thing.iter_rows(), start = 1):
-					cell = self.getCell(row = i , column = column)
+					cell = self.getCell(row = i, column = column)
 					cell.fill = fillObject
+
+			def setCellColor(self, row, column, color = "CCCCCC"):
+				"""Changes the color of a column.
+
+				column (int) - The index of the column. Can be a char
+				color (str)    - The new color in hex format
+
+				Example Input: setColumnColor("A")
+				"""
+
+				fillObject = openpyxl.styles.PatternFill(start_color = color, end_color = color, fill_type = "solid")
+				cell = self.getCell(row = row, column = column)
+				cell.fill = fillObject
 
 if (__name__ == "__main__"):
 	excel = Excel()
